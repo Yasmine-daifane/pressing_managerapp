@@ -1,14 +1,191 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:excel/excel.dart' as xls;
+import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'dart:io';
+
+// Vous devrez créer ces fichiers
+import 'models/user.dart';
 import 'models/commercial_visit.dart';
 import 'services/api_service.dart';
 
+void main( ) {
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  final ApiService _apiService = ApiService();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Pressing Manager',
+      theme: ThemeData(
+        colorScheme: ColorScheme.light(
+          primary: Colors.orange,
+          secondary: Colors.blueAccent,
+        ),
+      ),
+      initialRoute: '/',
+      routes: {
+        '/': (context) => FutureBuilder<bool>(
+              future: _apiService.isLoggedIn(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                
+                if (snapshot.hasData && snapshot.data == true) {
+                  return PressingManagerApp();
+                } else {
+                  return LoginScreen();
+                }
+              },
+            ),
+        '/login': (context) => LoginScreen(),
+        '/home': (context) => PressingManagerApp(),
+      },
+    );
+  }
+}
+
+class LoginScreen extends StatefulWidget {
+  @override
+  _LoginScreenState createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _apiService = ApiService();
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() {
+        _isLoading = true;
+      });
+
+      try {
+        final result = await _apiService.login(
+          _emailController.text,
+          _passwordController.text,
+        );
+
+        if (result['success']) {
+          // Navigation vers l'écran principal après connexion réussie
+          Navigator.of(context).pushReplacementNamed('/home');
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(result['message'])),
+          );
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de connexion: $e')),
+        );
+      } finally {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Connexion Commercial'),
+        backgroundColor: Colors.orange,
+      ),
+      body: _isLoading
+          ? Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: EdgeInsets.all(16),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(height: 20),
+                    Text(
+                      'Pressing Manager',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    SizedBox(height: 40),
+                    TextFormField(
+                      controller: _emailController,
+                      decoration: InputDecoration(
+                        labelText: 'Email',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.email),
+                      ),
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Veuillez entrer votre email';
+                        }
+                        return null;
+                      },
+                    ),
+                    SizedBox(height: 20),
+                    TextFormField(
+                      controller: _passwordController,
+                      decoration: InputDecoration(
+                        labelText: 'Mot de passe',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.lock),
+                      ),
+                      obscureText: true,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Veuillez entrer votre mot de passe';
+                        }
+                        return null;
+                      },
+                    ),
+                    SizedBox(height: 30),
+                    ElevatedButton(
+                      onPressed: _login,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        padding: EdgeInsets.symmetric(vertical: 15),
+                      ),
+                      child: Text(
+                        'Se connecter',
+                        style: TextStyle(fontSize: 16),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
+}
+
 class PressingManagerApp extends StatefulWidget {
   @override
-  _PressingManagerAppState createState( ) => _PressingManagerAppState();
+  _PressingManagerAppState createState() => _PressingManagerAppState();
 }
 
 class _PressingManagerAppState extends State<PressingManagerApp> {
@@ -153,7 +330,7 @@ class _PressingManagerAppState extends State<PressingManagerApp> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result['message'])),
         );
-
+        
         // Réinitialiser le formulaire
         _formKey.currentState!.reset();
         setState(() {
@@ -237,170 +414,170 @@ class _PressingManagerAppState extends State<PressingManagerApp> {
       body: isLoading
           ? Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            /// 🔶 Location Box
-            Card(
-              color: Colors.orange.shade50,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Column(
-                  children: [
-                    Row(
+              padding: EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  /// 🔶 Location Box
+                  Card(
+                    color: Colors.orange.shade50,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 4,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.location_on, color: Colors.orange),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: locationController,
+                                  onChanged: fetchLocationSuggestions,
+                                  decoration: InputDecoration(
+                                    hintText: "Enter a location in Morocco",
+                                    border: InputBorder.none,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.my_location,
+                                    color: Colors.orange),
+                                onPressed: getCurrentLocation,
+                                tooltip: "Use current location",
+                              ),
+                            ],
+                          ),
+                          if (isSearching) LinearProgressIndicator(),
+                          ...suggestions.map((s) {
+                            return ListTile(
+                              title: Text(s['display_name']),
+                              onTap: () {
+                                locationController.text = s['display_name'];
+                                setState(() => suggestions = []);
+                              },
+                            );
+                          }).toList()
+                        ],
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 20),
+
+                  /// 🔷 Main Form Box
+                  Form(
+                    key: _formKey,
+                    child: Column(
                       children: [
-                        Icon(Icons.location_on, color: Colors.orange),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: locationController,
-                            onChanged: fetchLocationSuggestions,
-                            decoration: InputDecoration(
-                              hintText: "Enter a location in Morocco",
-                              border: InputBorder.none,
-                            ),
+                        _boxWrapper(
+                          child: DropdownButtonFormField<String>(
+                            value: selectedCleaningType,
+                            decoration:
+                                InputDecoration.collapsed(hintText: null),
+                            hint: Text("Select Cleaning Type"),
+                            items: cleaningTypes.map((type) {
+                              return DropdownMenuItem<String>(
+                                value: type,
+                                child: Text(type),
+                              );
+                            }).toList(),
+                            onChanged: (val) =>
+                                setState(() => selectedCleaningType = val),
+                            validator: (value) =>
+                                value == null || value.isEmpty
+                                    ? "Required"
+                                    : null,
                           ),
                         ),
-                        IconButton(
-                          icon: Icon(Icons.my_location,
-                              color: Colors.orange),
-                          onPressed: getCurrentLocation,
-                          tooltip: "Use current location",
+                        SizedBox(height: 20),
+                        _boxWrapper(
+                          child: TextFormField(
+                            controller: nameController,
+                            decoration: InputDecoration.collapsed(
+                                hintText: "Enter Client Name"),
+                            validator: (value) =>
+                                value == null || value.isEmpty
+                                    ? "Required"
+                                    : null,
+                          ),
+                        ),
+                        SizedBox(height: 10),
+                        _boxWrapper(
+                          child: TextFormField(
+                            controller: dateController,
+                            readOnly: true,
+                            onTap: _selectDate,
+                            decoration: InputDecoration.collapsed(
+                                hintText: "Select Date of Visit"),
+                            validator: (value) =>
+                                value == null || value.isEmpty
+                                    ? "Required"
+                                    : null,
+                          ),
+                        ),
+                        SizedBox(height: 10),
+                        _boxWrapper(
+                          child: TextFormField(
+                            controller: contactController,
+                            decoration: InputDecoration.collapsed(
+                                hintText: "Enter Contact Info"),
+                            validator: (value) =>
+                                value == null || value.isEmpty
+                                    ? "Required"
+                                    : null,
+                          ),
+                        ),
+                        SizedBox(height: 10),
+                        _boxWrapper(
+                          child: TextFormField(
+                            controller: relanceController,
+                            readOnly: true,
+                            onTap: () async {
+                              DateTime? pickedDate = await showDatePicker(
+                                context: context,
+                                initialDate: DateTime.now(),
+                                firstDate: DateTime(2023),
+                                lastDate: DateTime(2030),
+                              );
+
+                              if (pickedDate != null) {
+                                String formattedDate =
+                                    DateFormat('yyyy-MM-dd').format(pickedDate);
+                                setState(() {
+                                  relanceController.text = formattedDate;
+                                });
+                              }
+                            },
+                            decoration: InputDecoration.collapsed(
+                                hintText: "Select Relance Date"),
+                            validator: (value) =>
+                                value == null || value.isEmpty
+                                    ? "Required"
+                                    : null,
+                          ),
+                        ),
+                        SizedBox(height: 20),
+                        ElevatedButton(
+                          onPressed: () {
+                            if (_formKey.currentState!.validate()) {
+                              saveVisit();
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: Text("Enregistrer la visite"),
                         ),
                       ],
                     ),
-                    if (isSearching) LinearProgressIndicator(),
-                    ...suggestions.map((s) {
-                      return ListTile(
-                        title: Text(s['display_name']),
-                        onTap: () {
-                          locationController.text = s['display_name'];
-                          setState(() => suggestions = []);
-                        },
-                      );
-                    }).toList()
-                  ],
-                ),
-              ),
-            ),
-            SizedBox(height: 20),
-
-            /// 🔷 Main Form Box
-            Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  _boxWrapper(
-                    child: DropdownButtonFormField<String>(
-                      value: selectedCleaningType,
-                      decoration:
-                      InputDecoration.collapsed(hintText: null),
-                      hint: Text("Select Cleaning Type"),
-                      items: cleaningTypes.map((type) {
-                        return DropdownMenuItem<String>(
-                          value: type,
-                          child: Text(type),
-                        );
-                      }).toList(),
-                      onChanged: (val) =>
-                          setState(() => selectedCleaningType = val),
-                      validator: (value) =>
-                      value == null || value.isEmpty
-                          ? "Required"
-                          : null,
-                    ),
-                  ),
-                  SizedBox(height: 20),
-                  _boxWrapper(
-                    child: TextFormField(
-                      controller: nameController,
-                      decoration: InputDecoration.collapsed(
-                          hintText: "Enter Client Name"),
-                      validator: (value) =>
-                      value == null || value.isEmpty
-                          ? "Required"
-                          : null,
-                    ),
-                  ),
-                  SizedBox(height: 10),
-                  _boxWrapper(
-                    child: TextFormField(
-                      controller: dateController,
-                      readOnly: true,
-                      onTap: _selectDate,
-                      decoration: InputDecoration.collapsed(
-                          hintText: "Select Date of Visit"),
-                      validator: (value) =>
-                      value == null || value.isEmpty
-                          ? "Required"
-                          : null,
-                    ),
-                  ),
-                  SizedBox(height: 10),
-                  _boxWrapper(
-                    child: TextFormField(
-                      controller: contactController,
-                      decoration: InputDecoration.collapsed(
-                          hintText: "Enter Contact Info"),
-                      validator: (value) =>
-                      value == null || value.isEmpty
-                          ? "Required"
-                          : null,
-                    ),
-                  ),
-                  SizedBox(height: 10),
-                  _boxWrapper(
-                    child: TextFormField(
-                      controller: relanceController,
-                      readOnly: true,
-                      onTap: () async {
-                        DateTime? pickedDate = await showDatePicker(
-                          context: context,
-                          initialDate: DateTime.now(),
-                          firstDate: DateTime(2023),
-                          lastDate: DateTime(2030),
-                        );
-
-                        if (pickedDate != null) {
-                          String formattedDate =
-                          DateFormat('yyyy-MM-dd').format(pickedDate);
-                          setState(() {
-                            relanceController.text = formattedDate;
-                          });
-                        }
-                      },
-                      decoration: InputDecoration.collapsed(
-                          hintText: "Select Relance Date"),
-                      validator: (value) =>
-                      value == null || value.isEmpty
-                          ? "Required"
-                          : null,
-                    ),
-                  ),
-                  SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: () {
-                      if (_formKey.currentState!.validate()) {
-                        saveVisit();
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: Text("Enregistrer la visite"),
                   ),
                 ],
               ),
             ),
-          ],
-        ),
-      ),
     );
   }
 

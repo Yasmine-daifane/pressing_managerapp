@@ -6,7 +6,7 @@ import '../models/commercial_visit.dart';
 
 class ApiService {
   // Remplacez par l'URL de votre API Laravel
-  final String baseUrl = 'https://votre-api-laravel.com/api';
+ final String baseUrl = 'http://127.0.0.1:8000/api';
   final storage = FlutterSecureStorage( );
 
   // Méthode pour récupérer le token d'authentification
