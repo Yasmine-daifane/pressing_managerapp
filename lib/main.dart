@@ -1,28 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:excel/excel.dart' as xls;
-import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
-import 'dart:io';
-
-void main() {
-  runApp(MaterialApp(
-    home: PressingManagerApp(),
-    theme: ThemeData(
-      colorScheme: ColorScheme.light(
-        primary: Colors.orange,
-        secondary: Colors.blueAccent,
-      ),
-    ),
-  ));
-}
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'models/commercial_visit.dart';
+import 'services/api_service.dart';
 
 class PressingManagerApp extends StatefulWidget {
   @override
-  _PressingManagerAppState createState() => _PressingManagerAppState();
+  _PressingManagerAppState createState( ) => _PressingManagerAppState();
 }
 
 class _PressingManagerAppState extends State<PressingManagerApp> {
@@ -32,6 +18,7 @@ class _PressingManagerAppState extends State<PressingManagerApp> {
   final contactController = TextEditingController();
   final relanceController = TextEditingController();
   final nameController = TextEditingController();
+  final apiService = ApiService();
 
   final List<String> cleaningTypes = [
     "Dry Cleaning",
@@ -45,23 +32,38 @@ class _PressingManagerAppState extends State<PressingManagerApp> {
   bool isSearching = false;
 
   @override
+  void initState() {
+    super.initState();
+    _checkAuthentication();
+  }
+
+  Future<void> _checkAuthentication() async {
+    final isLoggedIn = await apiService.isLoggedIn();
+    if (!isLoggedIn) {
+      // Si l'utilisateur n'est pas connecté, rediriger vers l'écran de connexion
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pushReplacementNamed('/login');
+      });
+    }
+  }
+
+  @override
   void dispose() {
     locationController.dispose();
     dateController.dispose();
     contactController.dispose();
     relanceController.dispose();
     nameController.dispose();
-
     super.dispose();
   }
 
   Future<void> fetchLocationSuggestions(String input) async {
     setState(() => isSearching = true);
     final url = Uri.parse(
-        'https://nominatim.openstreetmap.org/search?q=$input&format=json&addressdetails=1&limit=5&countrycodes=ma');
+        'https://nominatim.openstreetmap.org/search?q=$input&format=json&addressdetails=1&limit=5&countrycodes=ma' );
 
     final response = await http.get(url, headers: {
-      'User-Agent': 'FlutterPressingApp/1.0 (your_email@example.com)'
+      'User-Agent': 'FlutterPressingApp/1.0 (your_email@example.com )'
     });
 
     if (response.statusCode == 200) {
@@ -103,10 +105,10 @@ class _PressingManagerAppState extends State<PressingManagerApp> {
         desiredAccuracy: LocationAccuracy.high);
 
     final reverseUrl = Uri.parse(
-        'https://nominatim.openstreetmap.org/reverse?lat=${position.latitude}&lon=${position.longitude}&format=json');
+        'https://nominatim.openstreetmap.org/reverse?lat=${position.latitude}&lon=${position.longitude}&format=json' );
 
     final response = await http.get(reverseUrl, headers: {
-      'User-Agent': 'FlutterPressingApp/1.0 (your_email@example.com)'
+      'User-Agent': 'FlutterPressingApp/1.0 (your_email@example.com )'
     });
 
     if (response.statusCode == 200) {
@@ -121,63 +123,60 @@ class _PressingManagerAppState extends State<PressingManagerApp> {
     }
   }
 
-  Future<void> saveToExcel() async {
-    final status = await Permission.manageExternalStorage.request();
-    if (!status.isGranted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Storage permission is required.")),
-      );
-      return;
-    }
-
-    var excel = xls.Excel.createExcel();
-    var sheet = excel['Sheet1'];
-
-    sheet.appendRow([
-      xls.TextCellValue("Location"),
-      xls.TextCellValue("Cleaning Type"),
-      xls.TextCellValue("Date"),
-      xls.TextCellValue("Contact"),
-      xls.TextCellValue("Relance")
-    ]);
-
-    sheet.appendRow([
-      xls.TextCellValue(locationController.text),
-      xls.TextCellValue(selectedCleaningType ?? ''),
-      xls.TextCellValue(dateController.text),
-      xls.TextCellValue(contactController.text),
-      xls.TextCellValue(relanceController.text),
-    ]);
-
-    Directory? dir = await getExternalStorageDirectory();
-    if (dir == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Unable to access storage directory.")),
-      );
-      return;
-    }
-
-    String formattedDate = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-    String path = "${dir.path}/pressing_data_$formattedDate.xlsx";
+  Future<void> saveVisit() async {
+    setState(() {
+      isLoading = true;
+    });
 
     try {
-      final file = File(path);
-      await file.create(recursive: true);
-      await file.writeAsBytes(excel.encode()!);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text("Saved to: $path")));
-      _formKey.currentState!.reset();
-      setState(() {
-        selectedCleaningType = null;
-        locationController.clear();
-        dateController.clear();
-        contactController.clear();
-        relanceController.clear();
-      });
+      // Récupérer l'utilisateur actuel
+      final user = await apiService.getUser();
+      if (user == null) {
+        throw Exception('Utilisateur non connecté');
+      }
+
+      // Créer l'objet visite
+      final visit = CommercialVisit(
+        userId: user.id,
+        clientName: nameController.text,
+        location: locationController.text,
+        cleaningType: selectedCleaningType ?? '',
+        visitDate: dateController.text,
+        contact: contactController.text,
+        relanceDate: relanceController.text,
+      );
+
+      // Envoyer la visite à l'API
+      final result = await apiService.createVisit(visit);
+
+      if (result['success']) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['message'])),
+        );
+
+        // Réinitialiser le formulaire
+        _formKey.currentState!.reset();
+        setState(() {
+          selectedCleaningType = null;
+          locationController.clear();
+          dateController.clear();
+          contactController.clear();
+          relanceController.clear();
+          nameController.clear();
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['message'])),
+        );
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error saving file: $e")),
+        SnackBar(content: Text("Erreur: $e")),
       );
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
     }
   }
 
@@ -197,10 +196,44 @@ class _PressingManagerAppState extends State<PressingManagerApp> {
     }
   }
 
+  Future<void> _logout() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final success = await apiService.logout();
+      if (success) {
+        Navigator.of(context).pushReplacementNamed('/login');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erreur lors de la déconnexion")),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Erreur: $e")),
+      );
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Pressing Manager")),
+      appBar: AppBar(
+        title: Text("Pressing Manager"),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.logout),
+            onPressed: _logout,
+            tooltip: "Déconnexion",
+          ),
+        ],
+      ),
       body: isLoading
           ? Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -285,8 +318,13 @@ class _PressingManagerAppState extends State<PressingManagerApp> {
                   SizedBox(height: 20),
                   _boxWrapper(
                     child: TextFormField(
-                      decoration: InputDecoration.collapsed(hintText: "Enter Client Name"),
-                      validator: (value) => value == null || value.isEmpty ? "Required" : null,
+                      controller: nameController,
+                      decoration: InputDecoration.collapsed(
+                          hintText: "Enter Client Name"),
+                      validator: (value) =>
+                      value == null || value.isEmpty
+                          ? "Required"
+                          : null,
                     ),
                   ),
                   SizedBox(height: 10),
@@ -329,31 +367,33 @@ class _PressingManagerAppState extends State<PressingManagerApp> {
                         );
 
                         if (pickedDate != null) {
-                          String formattedDate = DateFormat('yyyy-MM-dd').format(pickedDate);
+                          String formattedDate =
+                          DateFormat('yyyy-MM-dd').format(pickedDate);
                           setState(() {
                             relanceController.text = formattedDate;
                           });
                         }
                       },
-                      decoration: InputDecoration.collapsed(hintText: "Select Relance Date"),
+                      decoration: InputDecoration.collapsed(
+                          hintText: "Select Relance Date"),
                       validator: (value) =>
-                      value == null || value.isEmpty ? "Required" : null,
-
+                      value == null || value.isEmpty
+                          ? "Required"
+                          : null,
                     ),
                   ),
-
                   SizedBox(height: 20),
                   ElevatedButton(
                     onPressed: () {
                       if (_formKey.currentState!.validate()) {
-                        saveToExcel();
+                        saveVisit();
                       }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange,
                       foregroundColor: Colors.white,
                     ),
-                    child: Text("Save to Excel"),
+                    child: Text("Enregistrer la visite"),
                   ),
                 ],
               ),
